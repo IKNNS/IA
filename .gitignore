@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.worker.lock
+jobs/processing/*
+jobs/done/*
+jobs/failed/*
+runs/*
+!runs/.gitkeep
+outputs/*
+!outputs/.gitkeep
+workspace/*
+!workspace/.gitkeep
