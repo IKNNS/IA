@@ -19,6 +19,9 @@ class WorkerTests(unittest.TestCase):
     def test_memory_slug_is_filesystem_safe(self):
         self.assertEqual(_slug("Decision: use local memory!"), "decision-use-local-memory")
 
+    def test_approval_marker_only_applies_to_header(self):
+        self.assertFalse(cli.requires_approval("ordinary work\n" * 12 + "approval: required"))
+
     def test_find_job_uses_sorted_inbox(self):
         with tempfile.TemporaryDirectory() as temp:
             old_inbox = cli.INBOX

@@ -80,6 +80,19 @@ voice เป็น optional adapter เท่านั้นในตอนน�
 python3 scripts/check_project.py
 ```
 
+ตรวจความพร้อมของเครื่อง:
+
+```bash
+python3 -m codex_worker --doctor
+```
+
+ดูสถานะหรือกู้ job ที่ค้าง:
+
+```bash
+python3 -m codex_worker --status
+python3 -m codex_worker --recover
+```
+
 งานที่รันจริงจะถูกสร้างใน Git worktree แยกที่ `worktrees/<job-id>/` และไม่ merge กลับ branch หลักอัตโนมัติ
 ตรวจ diff ได้จาก `runs/<job-id>/diff-summary.txt`
 

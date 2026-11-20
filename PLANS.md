@@ -56,3 +56,11 @@ Status: Done (baseline)
 - [x] Add inbox secret-pattern checks
 - [x] Keep worker tests separate from Codex execution
 - [ ] Add a larger fixture suite after real local usage
+
+## Phase 7 — Operational readiness
+
+Status: Done
+
+- [x] Add prerequisite doctor command
+- [x] Add queue status command
+- [x] Add safe recovery for interrupted processing jobs

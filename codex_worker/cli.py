@@ -292,6 +292,29 @@ def list_jobs() -> None:
             print(f"  - {job.name}")
 
 
+def doctor() -> int:
+    checks: list[tuple[str, bool, str]] = []
+    checks.append(("python", sys.version_info >= (3, 11), sys.version.split()[0]))
+    codex = shutil.which(os.environ.get("CODEX_BIN", "codex"))
+    checks.append(("codex-cli", codex is not None, codex or "not found"))
+    git = shutil.which("git")
+    checks.append(("git", git is not None, git or "not found"))
+    repo = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=ROOT, text=True, capture_output=True, check=False)
+    checks.append(("git-repository", repo.returncode == 0, repo.stdout.strip() or repo.stderr.strip()))
+    for label, ok, detail in checks:
+        print(f"{'PASS' if ok else 'FAIL'} {label}: {detail}")
+    return 0 if all(ok for _, ok, _ in checks) else 1
+
+
+def recover_jobs() -> int:
+    recovered = 0
+    for job in sorted(PROCESSING.glob("*.md")):
+        release_job(job)
+        recovered += 1
+    print(f"recovered: {recovered} job(s)")
+    return 0
+
+
 def run_once(args: argparse.Namespace) -> int:
     if args.pause_file.exists():
         print(f"paused: remove {args.pause_file} to resume")
@@ -328,12 +351,22 @@ def main() -> None:
     parser.add_argument("--remember", metavar="TEXT", help="Save a short local memory note and exit")
     parser.add_argument("--memory-kind", choices=("raw", "wiki", "outputs"), default="raw")
     parser.add_argument("--memory-title", default="note")
+    parser.add_argument("--doctor", action="store_true", help="Check local prerequisites and exit")
+    parser.add_argument("--status", action="store_true", help="Show queue status and exit")
+    parser.add_argument("--recover", action="store_true", help="Move processing jobs back to inbox and exit")
     args = parser.parse_args()
     ensure_dirs()
     if args.remember is not None:
         path = save_note(args.remember, kind=args.memory_kind, title=args.memory_title)
         print(f"saved memory: {path}")
         return
+    if args.doctor:
+        raise SystemExit(doctor())
+    if args.status:
+        list_jobs()
+        raise SystemExit(0)
+    if args.recover:
+        raise SystemExit(recover_jobs())
     if args.timeout <= 0 or args.retries < 0 or args.interval <= 0 or args.max_jobs < 0:
         parser.error("timeout/interval must be positive; retries/max-jobs cannot be negative")
     if args.list:
