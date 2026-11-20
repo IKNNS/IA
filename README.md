@@ -56,6 +56,17 @@ python -m codex_worker --list
 python -m codex_worker --execute --timeout 900 --retries 1
 ```
 
+งานที่รันจริงจะถูกสร้างใน Git worktree แยกที่ `worktrees/<job-id>/` และไม่ merge กลับ branch หลักอัตโนมัติ
+ตรวจ diff ได้จาก `runs/<job-id>/diff-summary.txt`
+
+ถ้างานมีบรรทัดนี้ในช่วงต้นไฟล์:
+
+```text
+approval: required
+```
+
+worker จะหยุดรอการอนุมัติ และต้องสั่งใหม่ด้วย `--approve` ก่อนเริ่ม Codex
+
 หรือระบุไฟล์งาน:
 
 ```bash

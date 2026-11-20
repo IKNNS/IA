@@ -23,12 +23,12 @@ Status: Done
 
 ## Phase 3 — Isolation and review
 
-Status: Not started
+Status: Done
 
-- run implementation jobs in separate Git worktrees
-- produce a diff summary before merge
-- add explicit approval state before external writes
-- add recovery instructions for interrupted jobs
+- [x] Run implementation jobs in separate Git worktrees
+- [x] Produce a diff summary before merge
+- [x] Add explicit approval state before external writes
+- [x] Preserve run evidence for recovery after interruption
 
 ## Phase 4 — Scheduling and notifications
 

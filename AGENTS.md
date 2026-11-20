@@ -21,6 +21,8 @@
 - ตรวจสอบผลลัพธ์ด้วยคำสั่งหรือ test ที่เหมาะสม
 - ระบุไฟล์ input/output และข้อจำกัดที่พบ
 - หยุดก่อน commit, push, deploy หรือ external write
+- งานที่แก้โค้ดต้องทำใน Git worktree แยก และตรวจ `runs/<job-id>/diff-summary.txt`
+- ถ้า job มี `approval: required` ต้องหยุดรอ `--approve` ก่อนเริ่ม Codex
 
 ## โฟลเดอร์
 

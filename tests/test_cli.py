@@ -23,6 +23,10 @@ class WorkerTests(unittest.TestCase):
             finally:
                 cli.INBOX = old_inbox
 
+    def test_approval_marker_is_explicit(self):
+        self.assertTrue(cli.requires_approval("approval: required\n\nDo risky work"))
+        self.assertFalse(cli.requires_approval("Do ordinary work\n" * 10 + "approval: required"))
+
 
 if __name__ == "__main__":
     unittest.main()

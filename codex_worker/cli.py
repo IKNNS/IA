@@ -18,6 +18,7 @@ PROCESSING = ROOT / "jobs" / "processing"
 DONE = ROOT / "jobs" / "done"
 FAILED = ROOT / "jobs" / "failed"
 RUNS = ROOT / "runs"
+WORKTREES = ROOT / "worktrees"
 LOCK_PATH = ROOT / ".worker.lock"
 DEFAULT_TIMEOUT_SECONDS = 15 * 60
 DEFAULT_RETRIES = 1
@@ -29,7 +30,7 @@ def now_id() -> str:
 
 
 def ensure_dirs() -> None:
-    for directory in (INBOX, PROCESSING, DONE, FAILED, RUNS, ROOT / "workspace", ROOT / "outputs"):
+    for directory in (INBOX, PROCESSING, DONE, FAILED, RUNS, WORKTREES, ROOT / "workspace", ROOT / "outputs"):
         directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -43,10 +44,15 @@ def find_job(requested: str | None) -> Path | None:
     return jobs[0] if jobs else None
 
 
-def build_prompt(job_text: str, job_id: str) -> str:
+def requires_approval(job_text: str) -> bool:
+    return any(line.strip().lower() == "approval: required" for line in job_text.splitlines()[:10])
+
+
+def build_prompt(job_text: str, job_id: str, worktree: Path | None = None) -> str:
+    worktree = worktree or ROOT
     return f"""You are running as a bounded local worker.
 
-Repository: {ROOT}
+Repository worktree: {worktree}
 Job id: {job_id}
 Allowed input directory: {ROOT / 'workspace'}
 Allowed long-lived output directory: {ROOT / 'outputs'}
@@ -57,6 +63,7 @@ Safety rules:
 - Do not access secrets, credentials, SSH keys, browser profiles, or unrelated home-directory files.
 - Do not push, deploy, send messages, make purchases, delete data, or call external systems.
 - If the job requests a risky action, stop and explain what needs human approval.
+- Do not merge or push the worktree. A human reviews the diff after this run.
 - Verify your work and write a concise final report to stdout.
 
 User job:
@@ -95,7 +102,44 @@ def finish_job(processing_job: Path, success: bool) -> None:
     shutil.move(str(processing_job), str(target))
 
 
-def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int) -> int:
+def release_job(processing_job: Path) -> None:
+    if processing_job.parent != PROCESSING or not processing_job.exists():
+        return
+    target = INBOX / processing_job.name
+    if target.exists():
+        target = INBOX / f"{processing_job.stem}-{now_id()}{processing_job.suffix}"
+    shutil.move(str(processing_job), str(target))
+
+
+def create_worktree(job_id: str, run_dir: Path) -> Path:
+    worktree = WORKTREES / job_id
+    result = subprocess.run(
+        ["git", "worktree", "add", "--detach", str(worktree), "HEAD"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    (run_dir / "worktree-create.stdout").write_text(result.stdout, encoding="utf-8")
+    (run_dir / "worktree-create.stderr").write_text(result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "git worktree add failed")
+    return worktree
+
+
+def capture_diff(worktree: Path, run_dir: Path) -> None:
+    status = subprocess.run(["git", "status", "--short"], cwd=worktree, text=True, capture_output=True, check=False)
+    stat = subprocess.run(["git", "diff", "--stat"], cwd=worktree, text=True, capture_output=True, check=False)
+    names = subprocess.run(["git", "diff", "--name-status"], cwd=worktree, text=True, capture_output=True, check=False)
+    summary = "[git status --short]\n" + status.stdout
+    summary += "\n[git diff --stat]\n" + stat.stdout
+    summary += "\n[git diff --name-status]\n" + names.stdout
+    (run_dir / "diff-summary.txt").write_text(summary, encoding="utf-8")
+    changed = [line for line in status.stdout.splitlines() if line.strip()]
+    write_status(run_dir, changed_files=changed, diff_summary=str(run_dir / "diff-summary.txt"))
+
+
+def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approve: bool) -> int:
     job_id = f"{now_id()}-{job.stem}"
     run_dir = RUNS / job_id
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -106,13 +150,12 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int) -> int
     print(f"run: {run_dir}")
 
     job_text = job.read_text(encoding="utf-8")
-    prompt = build_prompt(job_text, job_id)
-    (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
-    write_status(run_dir, job_id=job_id, job=str(job), state="created", created_at=datetime.now(timezone.utc).isoformat())
+    needs_approval = requires_approval(job_text)
+    write_status(run_dir, job_id=job_id, job=str(job), state="created", approval="approved" if approve else ("pending" if needs_approval else "not-required"), created_at=datetime.now(timezone.utc).isoformat())
 
     if not execute:
         print("mode: dry-run")
-        print("command: codex exec --full-auto <prompt from prompt.txt>")
+        print("command: codex exec --full-auto <prompt from prompt.txt> in an isolated worktree")
         return 0
 
     git_check = subprocess.run(
@@ -132,6 +175,24 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int) -> int
         processing_job = claim_job(job)
         write_status(run_dir, state="claimed", claimed_at=datetime.now(timezone.utc).isoformat(), claimed_job=str(processing_job))
 
+    if needs_approval and not approve:
+        release_job(processing_job)
+        write_status(run_dir, state="awaiting-approval", finished_at=datetime.now(timezone.utc).isoformat())
+        print("status: awaiting approval; rerun with --approve", file=sys.stderr)
+        return 3
+
+    try:
+        worktree = create_worktree(job_id, run_dir)
+    except (OSError, RuntimeError) as error:
+        finish_job(processing_job, success=False)
+        write_status(run_dir, state="worktree-failed", finished_at=datetime.now(timezone.utc).isoformat(), error=str(error), returncode=78)
+        print(f"error: could not create worktree: {error}", file=sys.stderr)
+        return 78
+
+    prompt = build_prompt(job_text, job_id, worktree)
+    (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
+    write_status(run_dir, worktree=str(worktree), state="worktree-ready")
+
     codex_bin = os.environ.get("CODEX_BIN", "codex")
     command = [codex_bin, "exec", "--full-auto", prompt]
     env = os.environ.copy()
@@ -144,7 +205,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int) -> int
         try:
             result = subprocess.run(
                 command,
-                cwd=ROOT,
+                cwd=worktree,
                 env=env,
                 text=True,
                 capture_output=True,
@@ -156,6 +217,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int) -> int
             last_returncode = result.returncode
             write_status(run_dir, state="attempt-finished", attempt=attempt, returncode=result.returncode)
             if result.returncode == 0:
+                capture_diff(worktree, run_dir)
                 finish_job(processing_job, success=True)
                 write_status(run_dir, state="succeeded", finished_at=datetime.now(timezone.utc).isoformat(), returncode=0)
                 print(f"status: succeeded (attempt {attempt})")
@@ -164,9 +226,11 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int) -> int
         except subprocess.TimeoutExpired as error:
             last_returncode = 124
             (attempt_dir / "timeout.txt").write_text(str(error), encoding="utf-8")
+            capture_diff(worktree, run_dir)
             write_status(run_dir, state="timeout", attempt=attempt)
         except OSError as error:
             (attempt_dir / "error.txt").write_text(str(error), encoding="utf-8")
+            capture_diff(worktree, run_dir)
             finish_job(processing_job, success=False)
             write_status(run_dir, state="failed-to-start", finished_at=datetime.now(timezone.utc).isoformat(), error=str(error), returncode=127)
             print(f"error: could not start Codex: {error}", file=sys.stderr)
@@ -175,6 +239,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int) -> int
         if attempt <= retries:
             write_status(run_dir, state="retrying", next_attempt=attempt + 1)
 
+    capture_diff(worktree, run_dir)
     finish_job(processing_job, success=False)
     write_status(run_dir, state="failed", finished_at=datetime.now(timezone.utc).isoformat(), returncode=last_returncode)
     print(f"status: failed after {retries + 1} attempt(s)")
@@ -213,6 +278,7 @@ def main() -> None:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS, help="Seconds allowed per attempt")
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES, help="Additional attempts after failure")
     parser.add_argument("--list", action="store_true", help="List jobs without running one")
+    parser.add_argument("--approve", action="store_true", help="Approve a job explicitly marked approval: required")
     args = parser.parse_args()
     ensure_dirs()
     if args.timeout <= 0 or args.retries < 0:
@@ -230,7 +296,7 @@ def main() -> None:
         print(f"error: {error}", file=sys.stderr)
         raise SystemExit(2)
     try:
-        raise SystemExit(run_job(job, execute=args.execute and not args.dry_run, timeout_seconds=args.timeout, retries=args.retries))
+        raise SystemExit(run_job(job, execute=args.execute and not args.dry_run, timeout_seconds=args.timeout, retries=args.retries, approve=args.approve))
     finally:
         fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
         lock.close()
