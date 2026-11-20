@@ -169,7 +169,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
 
     if not execute:
         print("mode: dry-run")
-        print("command: codex exec --full-auto <prompt from prompt.txt> in an isolated worktree")
+        print("command: codex exec -s workspace-write <prompt from prompt.txt> in an isolated worktree")
         return 0
 
     git_check = subprocess.run(
@@ -210,7 +210,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
     write_status(run_dir, worktree=str(worktree), state="worktree-ready")
 
     codex_bin = os.environ.get("CODEX_BIN", "codex")
-    command = [codex_bin, "exec", "--full-auto", prompt]
+    command = [codex_bin, "exec", "-s", "workspace-write", prompt]
     env = os.environ.copy()
     write_status(run_dir, state="running", started_at=datetime.now(timezone.utc).isoformat(), timeout_seconds=timeout_seconds, retries=retries)
     last_returncode = 1
@@ -225,6 +225,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
                 env=env,
                 text=True,
                 capture_output=True,
+                stdin=subprocess.DEVNULL,
                 timeout=timeout_seconds,
                 check=False,
             )

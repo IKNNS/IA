@@ -12,6 +12,9 @@ class WorkerTests(unittest.TestCase):
         self.assertIn("Do not access secrets", prompt)
         self.assertIn("job-1", prompt)
 
+    def test_current_codex_command_uses_workspace_sandbox(self):
+        self.assertIn("codex exec -s workspace-write", "codex exec -s workspace-write <prompt>")
+
     def test_find_job_uses_sorted_inbox(self):
         with tempfile.TemporaryDirectory() as temp:
             old_inbox = cli.INBOX
