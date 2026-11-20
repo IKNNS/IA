@@ -96,6 +96,10 @@ python -m codex_worker --execute jobs/inbox/example.md
 
 ```text
 AGENTS.md                 กติกาสำหรับ Codex
+GOALS.md                  เป้าหมายและ non-goals
+PLANS.md                  roadmap และสถานะ phase
+PROMPTS.md                prompt สำหรับ workflow ที่ใช้ซ้ำ
+.agents/skills/            reusable Codex skills
 codex_worker/             ตัว worker
 jobs/inbox/               งานที่รอทำ
 jobs/processing/          งานที่กำลังทำ
