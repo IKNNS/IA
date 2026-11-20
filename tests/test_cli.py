@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from codex_worker import cli
+from codex_worker.memory import _slug
 
 
 class WorkerTests(unittest.TestCase):
@@ -14,6 +15,9 @@ class WorkerTests(unittest.TestCase):
 
     def test_current_codex_command_uses_workspace_sandbox(self):
         self.assertIn("codex exec -s workspace-write", "codex exec -s workspace-write <prompt>")
+
+    def test_memory_slug_is_filesystem_safe(self):
+        self.assertEqual(_slug("Decision: use local memory!"), "decision-use-local-memory")
 
     def test_find_job_uses_sorted_inbox(self):
         with tempfile.TemporaryDirectory() as temp:

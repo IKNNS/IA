@@ -15,6 +15,7 @@ runs/<job-id>/
 ```
 
 โปรเจกต์นี้ไม่ใช้ OpenAI API key และไม่ใช้ Codex Cloud โดยอาศัย Codex CLI ที่ล็อกอินด้วยบัญชี ChatGPT บนเครื่องนี้แทน
+worker ใช้ `codex exec -s workspace-write` ซึ่งเป็นรูปแบบ sandbox ของ Codex CLI รุ่นปัจจุบัน
 
 ## เริ่มต้น
 
@@ -63,6 +64,21 @@ python -m codex_worker --execute --watch --interval 60
 ```
 
 หยุดชั่วคราวโดยสร้างไฟล์ `.pause` ที่ root โปรเจกต์ และดู event แจ้งเตือนได้ที่ `notifications.jsonl`
+
+บันทึก memory แบบ local Markdown:
+
+```bash
+python3 -m codex_worker --remember "ข้อสรุปที่อยากเก็บไว้" --memory-title decision --memory-kind wiki
+```
+
+voice เป็น optional adapter เท่านั้นในตอนนี้: `faster-whisper` สำหรับ input และ `kokoro-onnx` สำหรับ output
+จะไม่ถูกติดตั้งหรือโหลดจนกว่าจะเลือกติดตั้ง backend เอง
+
+ตรวจโครงสร้างและความปลอดภัยเบื้องต้น:
+
+```bash
+python3 scripts/check_project.py
+```
 
 งานที่รันจริงจะถูกสร้างใน Git worktree แยกที่ `worktrees/<job-id>/` และไม่ merge กลับ branch หลักอัตโนมัติ
 ตรวจ diff ได้จาก `runs/<job-id>/diff-summary.txt`
@@ -127,4 +143,6 @@ jobs/failed/              งานที่ล้มเหลว
 runs/                     output และ log ของแต่ละ job
 workspace/                ไฟล์ input ที่อนุญาตให้ agent อ่าน
 outputs/                  ผลงานที่ต้องการเก็บระยะยาว
+memory/                   local raw/wiki/outputs notes
+evals/                    เกณฑ์ตรวจแบบไม่เรียก Codex
 ```

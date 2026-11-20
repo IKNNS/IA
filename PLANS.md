@@ -41,8 +41,18 @@ Status: Done
 
 ## Phase 5 — Voice and memory
 
-Status: Not started
+Status: Done (adapters)
 
-- add local speech-to-text
-- add optional text-to-speech
-- connect curated notes to `workspace/` or an Obsidian vault
+- [x] Add file-based local memory writer
+- [x] Add optional speech-to-text adapter
+- [x] Add optional text-to-speech adapter boundary
+- [x] Keep voice dependencies optional and local
+
+## Phase 6 — Evaluation and hardening
+
+Status: Done (baseline)
+
+- [x] Add quota-free project structure checks
+- [x] Add inbox secret-pattern checks
+- [x] Keep worker tests separate from Codex execution
+- [ ] Add a larger fixture suite after real local usage

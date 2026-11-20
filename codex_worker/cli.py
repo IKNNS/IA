@@ -12,6 +12,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .memory import save_note
+
 
 ROOT = Path(__file__).resolve().parent.parent
 INBOX = ROOT / "jobs" / "inbox"
@@ -323,8 +325,15 @@ def main() -> None:
     parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_SECONDS, help="Seconds between watch polls")
     parser.add_argument("--max-jobs", type=int, default=0, help="Stop watch mode after this many jobs; 0 means unlimited")
     parser.add_argument("--pause-file", type=Path, default=ROOT / ".pause", help="File that pauses execution when present")
+    parser.add_argument("--remember", metavar="TEXT", help="Save a short local memory note and exit")
+    parser.add_argument("--memory-kind", choices=("raw", "wiki", "outputs"), default="raw")
+    parser.add_argument("--memory-title", default="note")
     args = parser.parse_args()
     ensure_dirs()
+    if args.remember is not None:
+        path = save_note(args.remember, kind=args.memory_kind, title=args.memory_title)
+        print(f"saved memory: {path}")
+        return
     if args.timeout <= 0 or args.retries < 0 or args.interval <= 0 or args.max_jobs < 0:
         parser.error("timeout/interval must be positive; retries/max-jobs cannot be negative")
     if args.list:

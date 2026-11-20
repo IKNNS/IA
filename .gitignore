@@ -6,6 +6,8 @@ __pycache__/
 .worker.lock
 .pause
 notifications.jsonl
+memory/*
+!memory/.gitkeep
 worktrees/*
 jobs/processing/*
 jobs/done/*
