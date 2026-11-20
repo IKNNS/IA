@@ -32,11 +32,12 @@ Status: Done
 
 ## Phase 4 — Scheduling and notifications
 
-Status: Not started
+Status: Done
 
-- add local scheduler integration
-- notify only on completion, failure, or approval needed
-- add quota-aware pause behavior
+- [x] Add local watch mode
+- [x] Notify only on completion, failure, or approval needed
+- [x] Add manual pause behavior for quota or maintenance
+- [x] Add launchd template without installing it automatically
 
 ## Phase 5 — Voice and memory
 

@@ -56,6 +56,14 @@ python -m codex_worker --list
 python -m codex_worker --execute --timeout 900 --retries 1
 ```
 
+เฝ้าดูงานใหม่แบบ local background process:
+
+```bash
+python -m codex_worker --execute --watch --interval 60
+```
+
+หยุดชั่วคราวโดยสร้างไฟล์ `.pause` ที่ root โปรเจกต์ และดู event แจ้งเตือนได้ที่ `notifications.jsonl`
+
 งานที่รันจริงจะถูกสร้างใน Git worktree แยกที่ `worktrees/<job-id>/` และไม่ merge กลับ branch หลักอัตโนมัติ
 ตรวจ diff ได้จาก `runs/<job-id>/diff-summary.txt`
 

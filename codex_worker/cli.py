@@ -7,6 +7,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,8 @@ WORKTREES = ROOT / "worktrees"
 LOCK_PATH = ROOT / ".worker.lock"
 DEFAULT_TIMEOUT_SECONDS = 15 * 60
 DEFAULT_RETRIES = 1
+DEFAULT_INTERVAL_SECONDS = 60
+NOTIFICATIONS = ROOT / "notifications.jsonl"
 
 
 def now_id() -> str:
@@ -80,6 +83,17 @@ def write_status(run_dir: Path, **values: object) -> None:
         current = json.loads(status_path.read_text(encoding="utf-8"))
     current.update(values)
     status_path.write_text(json.dumps(current, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def notify(job_id: str, state: str, message: str) -> None:
+    event = {
+        "at": datetime.now(timezone.utc).isoformat(),
+        "job_id": job_id,
+        "state": state,
+        "message": message,
+    }
+    with NOTIFICATIONS.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
 
 
 def claim_job(job: Path) -> Path:
@@ -178,6 +192,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
     if needs_approval and not approve:
         release_job(processing_job)
         write_status(run_dir, state="awaiting-approval", finished_at=datetime.now(timezone.utc).isoformat())
+        notify(job_id, "awaiting-approval", "job requires explicit approval; rerun with --approve")
         print("status: awaiting approval; rerun with --approve", file=sys.stderr)
         return 3
 
@@ -186,6 +201,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
     except (OSError, RuntimeError) as error:
         finish_job(processing_job, success=False)
         write_status(run_dir, state="worktree-failed", finished_at=datetime.now(timezone.utc).isoformat(), error=str(error), returncode=78)
+        notify(job_id, "worktree-failed", str(error))
         print(f"error: could not create worktree: {error}", file=sys.stderr)
         return 78
 
@@ -220,6 +236,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
                 capture_diff(worktree, run_dir)
                 finish_job(processing_job, success=True)
                 write_status(run_dir, state="succeeded", finished_at=datetime.now(timezone.utc).isoformat(), returncode=0)
+                notify(job_id, "succeeded", f"artifacts available at {run_dir}")
                 print(f"status: succeeded (attempt {attempt})")
                 print(f"artifacts: {run_dir}")
                 return 0
@@ -233,6 +250,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
             capture_diff(worktree, run_dir)
             finish_job(processing_job, success=False)
             write_status(run_dir, state="failed-to-start", finished_at=datetime.now(timezone.utc).isoformat(), error=str(error), returncode=127)
+            notify(job_id, "failed-to-start", str(error))
             print(f"error: could not start Codex: {error}", file=sys.stderr)
             return 127
 
@@ -242,6 +260,7 @@ def run_job(job: Path, execute: bool, timeout_seconds: int, retries: int, approv
     capture_diff(worktree, run_dir)
     finish_job(processing_job, success=False)
     write_status(run_dir, state="failed", finished_at=datetime.now(timezone.utc).isoformat(), returncode=last_returncode)
+    notify(job_id, "failed", f"failed after {retries + 1} attempt(s)")
     print(f"status: failed after {retries + 1} attempt(s)")
     print(f"artifacts: {run_dir}")
     return last_returncode
@@ -270,6 +289,26 @@ def list_jobs() -> None:
             print(f"  - {job.name}")
 
 
+def run_once(args: argparse.Namespace) -> int:
+    if args.pause_file.exists():
+        print(f"paused: remove {args.pause_file} to resume")
+        return 4
+    job = find_job(args.job)
+    if job is None:
+        print("No job found. Add a Markdown file to jobs/inbox/.")
+        return 1
+    try:
+        lock = with_worker_lock()
+    except RuntimeError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    try:
+        return run_job(job, execute=args.execute and not args.dry_run, timeout_seconds=args.timeout, retries=args.retries, approve=args.approve)
+    finally:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run one local Codex job from jobs/inbox.")
     parser.add_argument("job", nargs="?", help="Job Markdown path; defaults to the oldest inbox job")
@@ -279,24 +318,33 @@ def main() -> None:
     parser.add_argument("--retries", type=int, default=DEFAULT_RETRIES, help="Additional attempts after failure")
     parser.add_argument("--list", action="store_true", help="List jobs without running one")
     parser.add_argument("--approve", action="store_true", help="Approve a job explicitly marked approval: required")
+    parser.add_argument("--watch", action="store_true", help="Keep polling the inbox for new jobs")
+    parser.add_argument("--interval", type=int, default=DEFAULT_INTERVAL_SECONDS, help="Seconds between watch polls")
+    parser.add_argument("--max-jobs", type=int, default=0, help="Stop watch mode after this many jobs; 0 means unlimited")
+    parser.add_argument("--pause-file", type=Path, default=ROOT / ".pause", help="File that pauses execution when present")
     args = parser.parse_args()
     ensure_dirs()
-    if args.timeout <= 0 or args.retries < 0:
-        parser.error("--timeout must be positive and --retries cannot be negative")
+    if args.timeout <= 0 or args.retries < 0 or args.interval <= 0 or args.max_jobs < 0:
+        parser.error("timeout/interval must be positive; retries/max-jobs cannot be negative")
     if args.list:
         list_jobs()
         return
-    job = find_job(args.job)
-    if job is None:
-        print("No job found. Add a Markdown file to jobs/inbox/.")
-        raise SystemExit(1)
+    if not args.watch:
+        raise SystemExit(run_once(args))
+
+    completed = 0
     try:
-        lock = with_worker_lock()
-    except RuntimeError as error:
-        print(f"error: {error}", file=sys.stderr)
-        raise SystemExit(2)
-    try:
-        raise SystemExit(run_job(job, execute=args.execute and not args.dry_run, timeout_seconds=args.timeout, retries=args.retries, approve=args.approve))
-    finally:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
-        lock.close()
+        while args.max_jobs == 0 or completed < args.max_jobs:
+            if args.pause_file.exists():
+                print(f"paused: remove {args.pause_file} to resume")
+                break
+            if find_job(args.job) is not None:
+                run_once(args)
+                completed += 1
+                if args.job:
+                    args.job = None
+            else:
+                print(f"watching: no jobs; next check in {args.interval}s")
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("watch stopped")

@@ -4,6 +4,8 @@ __pycache__/
 .DS_Store
 .env
 .worker.lock
+.pause
+notifications.jsonl
 worktrees/*
 jobs/processing/*
 jobs/done/*
